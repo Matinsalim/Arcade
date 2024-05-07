@@ -55,14 +55,16 @@ static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
+uint32_t buttons = 0;
 uint8_t data_received;
 uint8_t data_from_system[16];
 uint8_t data_from_system_len;
-bool data ;
-uint8_t zero='0', one='1', enter=13,errore_ticket='E';
-uint8_t i = 32;
+uint8_t ticket_dispenser_status;
+uint8_t send_data[10];
 int number_of_tickets = 0;
 void dataTransfer();
+
+
 
 /* USER CODE END PFP */
 
@@ -80,10 +82,25 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim)
 	//	HAL_GPIO_TogglePin(MCU_LEDR_GPIO_Port, MCU_LEDR_Pin);
 }
 
-
-
 /* USER CODE BEGIN 0 */
 void dataTransfer()
+{
+
+	uint8_t *ptr;
+	ptr = (uint8_t *) &buttons;
+	for(int i=0; i<sizeof(buttons); i++)
+		send_data[i] = ptr[i];
+
+
+	send_data[4]=ticket_dispenser_status;
+
+	//Send status buttons
+	CDC_Transmit_FS(&send_data[0],sizeof(send_data));
+	HAL_Delay(1);
+}
+
+
+void loop()
 {
 	// Latch at first
 	HAL_GPIO_WritePin(SR_PL_GPIO_Port,SR_PL_Pin, 0);
@@ -91,46 +108,36 @@ void dataTransfer()
 	HAL_GPIO_WritePin(SR_PL_GPIO_Port,SR_PL_Pin, 1);
 	HAL_Delay(1);
 
-	for(i = 0; i < 32; i++)
+	buttons = 0;
+	for(int i = 0; i < 32; i++)
 	{
-		// Read Pin and transmit to USB
-		if(HAL_GPIO_ReadPin(SR_OUT_GPIO_Port,SR_OUT_Pin))
-			CDC_Transmit_FS(&one,1);
-		else
-			CDC_Transmit_FS(&zero,1);
-
+		//Get button status
+		buttons+=(HAL_GPIO_ReadPin(SR_OUT_GPIO_Port,SR_OUT_Pin)<<i);
 		// Clock
 		HAL_GPIO_WritePin(SR_CP_GPIO_Port,SR_CP_Pin, 1);
 		HAL_Delay(1);
 		HAL_GPIO_WritePin(SR_CP_GPIO_Port,SR_CP_Pin, 0);
 		HAL_Delay(1);
 	}
-	if(	htim3.Instance->CNT>=1000)
-	{
-		CDC_Transmit_FS(&errore_ticket,1);
-		HAL_TIM_Base_Stop(&htim3);
-		htim3.Instance->CNT=0;
-		HAL_GPIO_WritePin(en_ticket_GPIO_Port, en_ticket_Pin, 0);
-	}
 
-	CDC_Transmit_FS(&enter,1);
-}
-
-
-void ticketDispenser()
-{
+	//for ticket
 	if(number_of_tickets>0)
 	{
+		ticket_dispenser_status='B';
 		HAL_TIM_Base_Start(&htim3);
 		HAL_GPIO_WritePin(en_ticket_GPIO_Port, en_ticket_Pin, 1);
 	}
 	else
 	{
+		ticket_dispenser_status='N';
 		HAL_TIM_Base_Stop(&htim3);
 		HAL_GPIO_WritePin(en_ticket_GPIO_Port, en_ticket_Pin, 0);
 	}
-
-
+	if(htim3.Instance->CNT>1000)
+	{
+		ticket_dispenser_status='E';
+		HAL_TIM_Base_Stop(&htim3);
+	}
 
 }
 /* USER CODE END 0 */
@@ -182,14 +189,18 @@ int main(void)
 	/* USER CODE BEGIN WHILE */
 	while (1)
 	{
-		ticketDispenser();
-		dataTransfer();
 
 		if (data_received)
 		{
+			//Get the number of tickets
 			number_of_tickets=data_from_system[0];
 			data_received=0;
 		}
+		loop();
+		dataTransfer();
+
+
+		HAL_Delay(50);
 		/* USER CODE END WHILE */
 
 		/* USER CODE BEGIN 3 */
