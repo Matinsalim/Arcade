@@ -75,8 +75,6 @@ void Error_Handler(void);
 #define SR_OUT_GPIO_Port GPIOA
 #define SR_PL_Pin GPIO_PIN_7
 #define SR_PL_GPIO_Port GPIOA
-#define tetris_Pin GPIO_PIN_11
-#define tetris_GPIO_Port GPIOB
 #define MCU_LEDR_Pin GPIO_PIN_12
 #define MCU_LEDR_GPIO_Port GPIOB
 #define Coin_Reader_Pin GPIO_PIN_13

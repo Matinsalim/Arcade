@@ -28,6 +28,7 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+#define MAX_LED 9
 
 /* USER CODE END PTD */
 
@@ -54,17 +55,22 @@ DMA_HandleTypeDef hdma_tim2_ch2_ch4;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
-static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
+
+
+
+uint8_t LED_Data[MAX_LED][4];
+
 uint32_t buttons = 0;
 uint8_t data_received;
 uint8_t data_from_system[16];
 uint8_t data_from_system_len;
 uint8_t ticket_dispenser_status;
 uint8_t send_data[10];
-int number_of_tickets = 0;
-void dataTransfer();
+uint16_t number_of_tickets = 0;
+
 
 
 
@@ -76,7 +82,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 	number_of_tickets--;
 	htim3.Instance->CNT=0;
-	HAL_GPIO_TogglePin(MCU_LEDR_GPIO_Port, MCU_LEDR_Pin);
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim)
@@ -98,7 +103,6 @@ void dataTransfer()
 
 	//Send status buttons
 	CDC_Transmit_FS(&send_data[0],sizeof(send_data));
-	HAL_Delay(1);
 }
 
 
@@ -144,32 +148,65 @@ void loop()
 }
 
 
-
-uint16_t pwmData[24];
-void send(int green,int red ,int blue)
-{
-	uint32_t data =(green<<16)|(red<<8)|(blue);
-
-	for(int i=23;i>=0;i--)
-	{
-		if(data&(1<<i))
-			pwmData[i]=60;
-		else
-			pwmData[i]=30;
-	}
-	HAL_TIM_PWM_Start_DMA(&htim2, TIM_CHANNEL_4, (uint32_t *)pwmData, 24);
-}
+//------------------------------------------------------------------------------------------------------------------
 
 
+int datasentflag =0;
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 {
-		HAL_TIM_PWM_Stop_DMA(&htim2, TIM_CHANNEL_4);
+	HAL_TIM_PWM_Stop_DMA(&htim2, TIM_CHANNEL_4);
+	datasentflag=1;
+}
+
+
+void Set_LED (int LEDnum, int Red, int Green, int Blue)
+{
+	LED_Data[LEDnum][0] = LEDnum;
+	LED_Data[LEDnum][1] = Green;
+	LED_Data[LEDnum][2] = Red;
+	LED_Data[LEDnum][3] = Blue;
 }
 
 
 
+uint16_t pwmData[(24*MAX_LED)+50];
+
+void WS2812_Send (void)
+{
+	uint32_t indx=0;
+	uint32_t color;
 
 
+	for (int i= 0; i<MAX_LED; i++)
+	{
+
+		color = ((LED_Data[i][1]<<16) | (LED_Data[i][2]<<8) | (LED_Data[i][3]));
+
+		for (int i=23; i>=0; i--)
+		{
+			if (color&(1<<i))
+			{
+				pwmData[indx] = 60;  // 2/3 of 90
+			}
+
+			else pwmData[indx] = 30;  // 1/3 of 90
+
+			indx++;
+		}
+
+	}
+
+	for (int i=0; i<50; i++)
+	{
+		pwmData[indx] = 0;
+		indx++;
+	}
+
+	HAL_TIM_PWM_Start_DMA(&htim2, TIM_CHANNEL_4, (uint32_t *)pwmData, indx);
+	while (!datasentflag){};
+	datasentflag = 0;
+}
+//----------------------------------------------------------------------------------------------------------
 
 
 /* USER CODE END 0 */
@@ -202,19 +239,17 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_TIM2_Init();
   MX_USB_DEVICE_Init();
   MX_TIM3_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 
 	HAL_GPIO_WritePin(USB_PU_GPIO_Port, USB_PU_Pin, 1);
 	HAL_GPIO_WritePin(en_ticket_GPIO_Port, en_ticket_Pin, 0);
 	data_from_system[0]=0;
 	htim3.Instance->CNT=0;
+
 	HAL_Delay(1000);// to initialize USB then start timer ...
-	HAL_TIM_Base_Start(& htim2);
-	HAL_TIM_OC_Start(&htim2, TIM_CHANNEL_4);
-	send(4,255,255);
 
   /* USER CODE END 2 */
 
@@ -222,18 +257,47 @@ int main(void)
   /* USER CODE BEGIN WHILE */
 	while (1)
 	{
-
+		HAL_GPIO_TogglePin(MCU_LEDR_GPIO_Port, MCU_LEDR_Pin);
 		if (data_received)
 		{
 			//Get the number of tickets
 			number_of_tickets=data_from_system[0];
 			data_received=0;
 		}
+
 		loop();
 		dataTransfer();
 
-
 		HAL_Delay(50);
+
+
+
+		/////////////////////////
+		int st =1;
+		if(st)
+		{
+			for (int i=0;i<=7;i++)
+			{
+				Set_LED(i ,i*30, i*30, 255);
+				WS2812_Send();
+				HAL_Delay(100);
+			}
+			st=0;
+
+		}
+		if(!st)
+		{
+			for (int i=7;i>=0;i--)
+			{
+				Set_LED(i ,0 , 0, 0);
+				WS2812_Send();
+				HAL_Delay(100);
+			}
+			st=1;
+
+		}
+
+		//////////////////////////////
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -309,7 +373,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 90;
+  htim2.Init.Period = 89;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
