@@ -260,17 +260,24 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
 	extern uint8_t data_received;
-	extern uint8_t data_from_system[16];
-	extern uint8_t data_from_system_len;
+	extern uint8_t data_from_system[310];
+	extern uint16_t data_from_system_len;
 
 
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
-  data_from_system_len = *Len;
-  memcpy(data_from_system, Buf, *Len);
+
+  memcpy(&data_from_system[data_from_system_len], Buf, (uint8_t) *Len);
+  data_from_system_len += (uint8_t) *Len;
+
+  if(data_from_system_len >= 299)
+  {
+	  data_received=1;
+	  data_from_system_len = 0;
+  }
 
 
-  data_received = 1;
+
 
   return (USBD_OK);
   /* USER CODE END 6 */
