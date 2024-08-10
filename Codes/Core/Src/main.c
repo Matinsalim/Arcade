@@ -60,9 +60,6 @@ static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 
-
-uint8_t LED_Data[MAX_LED][4];
-
 uint32_t buttons = 0;
 uint8_t data_received;
 uint8_t data_from_system[310];
@@ -164,16 +161,6 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 	HAL_TIM_PWM_Stop_DMA(&htim2, TIM_CHANNEL_4);
 	datasentflag=1;
 }
-
-
-void Set_LED (int LEDnum, int Red, int Green, int Blue)
-{
-	LED_Data[LEDnum][0] = LEDnum;
-	LED_Data[LEDnum][1] = Green;
-	LED_Data[LEDnum][2] = Red;
-	LED_Data[LEDnum][3] = Blue;
-}
-
 
 
 uint16_t pwmData[(24*MAX_LED)+50];
