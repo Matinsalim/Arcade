@@ -49,8 +49,6 @@ extern "C" {
 
 /* USER CODE END EM */
 
-void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
-
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
 
@@ -79,11 +77,6 @@ void Error_Handler(void);
 #define MCU_LEDR_GPIO_Port GPIOB
 #define Coin_Reader_Pin GPIO_PIN_13
 #define Coin_Reader_GPIO_Port GPIOB
-#define ticket_nuch_Pin GPIO_PIN_14
-#define ticket_nuch_GPIO_Port GPIOB
-#define ticket_nuch_EXTI_IRQn EXTI15_10_IRQn
-#define en_ticket_Pin GPIO_PIN_15
-#define en_ticket_GPIO_Port GPIOB
 #define USB_PU_Pin GPIO_PIN_10
 #define USB_PU_GPIO_Port GPIOA
 #define ASK_IN_SIG_Pin GPIO_PIN_15
