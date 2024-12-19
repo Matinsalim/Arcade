@@ -18,12 +18,17 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "tim.h"
 #include "usb_device.h"
+#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdbool.h>
 #include "usbd_cdc_if.h"
+#include "ask.h"
+#include <stdio.h>
+#include "FLASH_PAGE.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -49,7 +54,6 @@
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
 /* USER CODE BEGIN PFP */
 uint8_t data_received;
 uint8_t data_from_system[16];
@@ -58,7 +62,21 @@ bool data ;
 uint8_t zero='0', one='1', enter=13;
 uint8_t all_btn_data[32];
 uint8_t i = 32;
+uint8_t remote_pressed = true;
+ask_t rf433;
+uint32_t ask_code_in_flash;
+uint8_t code[3];
+
+typedef enum{
+	idle,
+	learning,
+	learned
+}learning_state_t;
+learning_state_t ask_learning_state = idle;
 void dataTransfer();
+
+
+
 
 /* USER CODE END PFP */
 
@@ -102,6 +120,19 @@ void dataTransfer()
 //	CDC_Transmit_FS(&enter,1);
 }
 
+void blinking()
+{
+	for(int i=0;i<=5;i++)
+	{
+		HAL_GPIO_WritePin(MCU_LEDR_GPIO_Port, MCU_LEDR_Pin, 1);
+		HAL_Delay(75);
+		HAL_GPIO_WritePin(MCU_LEDR_GPIO_Port, MCU_LEDR_Pin, 0);
+		HAL_Delay(75);
+	}
+}
+
+
+
 
 /* USER CODE END 0 */
 
@@ -111,6 +142,7 @@ void dataTransfer()
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
   /* USER CODE END 1 */
 
@@ -133,29 +165,100 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USB_DEVICE_Init();
+  MX_TIM3_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
+
 
   // Pull up USB Power
   HAL_GPIO_WritePin(USB_PU_GPIO_Port, USB_PU_Pin, 1);
 
   // iMac power
-  HAL_GPIO_WritePin(imac_power_GPIO_Port, imac_power_Pin, 1);
-  HAL_Delay(4000);
-  HAL_GPIO_WritePin(imac_power_GPIO_Port, imac_power_Pin, 0);
-  HAL_Delay(1000);
-  HAL_GPIO_WritePin(imac_power_GPIO_Port, imac_power_Pin, 1);
+//  HAL_GPIO_WritePin(imac_power_GPIO_Port, imac_power_Pin, 1);
+//  HAL_Delay(4000);
+//  HAL_GPIO_WritePin(imac_power_GPIO_Port, imac_power_Pin, 0);
+//  HAL_Delay(1000);
+//  HAL_GPIO_WritePin(imac_power_GPIO_Port, imac_power_Pin, 1);
+
+	// Read ASK code in Flash
+	Flash_Read_Data(0x0801FC00, &ask_code_in_flash, 1);
+
+	ask_init(&rf433,ASK_IN_SIG_GPIO_Port,ASK_IN_SIG_Pin);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 	while (1)
 	{
+
 		if(data_received)
 		{
 			data_received=0;
 			dataTransfer();
 		}
 		HAL_Delay(5);
+
+		// Receive the ask code
+		ask_loop(&rf433);
+		if (ask_available(&rf433))
+		{
+			ask_read(&rf433, code, NULL, NULL);
+			if(ask_code_in_flash == (code[0] | (code[1] << 8) | (code[2] << 16)))
+			{
+				HAL_GPIO_WritePin(MCU_LEDR_GPIO_Port, MCU_LEDR_Pin, 1);
+				remote_pressed = true;
+				HAL_Delay(10);
+			}
+			else
+			{
+				remote_pressed = false;
+				HAL_GPIO_WritePin(MCU_LEDR_GPIO_Port, MCU_LEDR_Pin, 0);
+			}
+
+		}
+		else
+		{
+			remote_pressed = false;
+			HAL_GPIO_WritePin(MCU_LEDR_GPIO_Port, MCU_LEDR_Pin, 0);
+		}
+
+		// Learn Procedure ...
+		if(ask_learning_state == idle)
+		{
+			if(!HAL_GPIO_ReadPin(Ext_BTN_GPIO_Port, Ext_BTN_Pin))
+			{
+				HAL_TIM_Base_Start(&htim4);
+				htim4.Instance->CNT=0;
+				ask_learning_state = learning;
+			}
+		}
+		else if(ask_learning_state == learning)
+		{
+			// wait for 5 seconds
+			if(htim4.Instance->CNT>12500) //12500 = 5 seconds
+			{
+				// ask code is valid, so save it ...
+				ask_code_in_flash = code[0] | (code[1] << 8) | (code[2] << 16);
+				blinking();
+				Flash_Write_Data(0x0801FC00, &ask_code_in_flash, 1);
+				HAL_TIM_Base_Stop(&htim4);
+
+				ask_learning_state = learned;
+			}
+
+			if(HAL_GPIO_ReadPin(Ext_BTN_GPIO_Port, Ext_BTN_Pin))	// BTN is released, learning procedure failed
+			{
+				ask_learning_state = idle;
+				HAL_TIM_Base_Stop(&htim4);
+			}
+		}
+		else // learned
+		{
+			// wait for BTN to release
+			if(HAL_GPIO_ReadPin(Ext_BTN_GPIO_Port, Ext_BTN_Pin))
+				ask_learning_state = idle;
+		}
 
     /* USER CODE END WHILE */
 
@@ -183,7 +286,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL6;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -198,90 +301,16 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB;
-  PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLL;
+  PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLL_DIV1_5;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
   }
-}
-
-/**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
-
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, imac_power_Pin|Ext_IO3_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, Ext_IO2_Pin|Ext_IO1_Pin|SR_CP_Pin|USB_PU_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(SR_PL_GPIO_Port, SR_PL_Pin, GPIO_PIN_SET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(MCU_LEDR_GPIO_Port, MCU_LEDR_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pins : imac_power_Pin Ext_IO3_Pin */
-  GPIO_InitStruct.Pin = imac_power_Pin|Ext_IO3_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : Ext_IO2_Pin Ext_IO1_Pin SR_CP_Pin SR_PL_Pin
-                           USB_PU_Pin */
-  GPIO_InitStruct.Pin = Ext_IO2_Pin|Ext_IO1_Pin|SR_CP_Pin|SR_PL_Pin
-                          |USB_PU_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : Ext_BTN_Pin SR_OUT_Pin */
-  GPIO_InitStruct.Pin = Ext_BTN_Pin|SR_OUT_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : MCU_LEDR_Pin */
-  GPIO_InitStruct.Pin = MCU_LEDR_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(MCU_LEDR_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : Coin_Reader_Pin */
-  GPIO_InitStruct.Pin = Coin_Reader_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(Coin_Reader_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : ASK_IN_SIG_Pin */
-  GPIO_InitStruct.Pin = ASK_IN_SIG_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(ASK_IN_SIG_GPIO_Port, &GPIO_InitStruct);
-
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */

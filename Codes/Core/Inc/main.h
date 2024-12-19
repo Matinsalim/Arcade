@@ -81,6 +81,7 @@ void Error_Handler(void);
 #define USB_PU_GPIO_Port GPIOA
 #define ASK_IN_SIG_Pin GPIO_PIN_15
 #define ASK_IN_SIG_GPIO_Port GPIOA
+#define ASK_IN_SIG_EXTI_IRQn EXTI15_10_IRQn
 
 /* USER CODE BEGIN Private defines */
 
