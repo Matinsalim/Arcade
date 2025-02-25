@@ -60,7 +60,7 @@ uint8_t data_from_system[16];
 uint8_t data_from_system_len;
 bool data ;
 uint8_t zero='0', one='1', enter=13;
-uint8_t all_btn_data[32];
+uint8_t all_btn_data[33];
 uint8_t i = 32;
 uint8_t remote_pressed = true;
 ask_t rf433;
@@ -115,7 +115,12 @@ void dataTransfer()
 		delay_us();
 	}
 
-	CDC_Transmit_FS(all_btn_data, 32);
+	if(remote_pressed)
+		all_btn_data[32] = '1';
+	else
+		all_btn_data[32] = '0';
+
+	CDC_Transmit_FS(all_btn_data, 33);
 
 //	CDC_Transmit_FS(&enter,1);
 }
@@ -174,11 +179,11 @@ int main(void)
   HAL_GPIO_WritePin(USB_PU_GPIO_Port, USB_PU_Pin, 1);
 
   // iMac power
-//  HAL_GPIO_WritePin(imac_power_GPIO_Port, imac_power_Pin, 1);
-//  HAL_Delay(4000);
-//  HAL_GPIO_WritePin(imac_power_GPIO_Port, imac_power_Pin, 0);
-//  HAL_Delay(1000);
-//  HAL_GPIO_WritePin(imac_power_GPIO_Port, imac_power_Pin, 1);
+  HAL_GPIO_WritePin(imac_power_GPIO_Port, imac_power_Pin, 1);
+  HAL_Delay(4000);
+  HAL_GPIO_WritePin(imac_power_GPIO_Port, imac_power_Pin, 0);
+  HAL_Delay(1000);
+  HAL_GPIO_WritePin(imac_power_GPIO_Port, imac_power_Pin, 1);
 
 	// Read ASK code in Flash
 	Flash_Read_Data(0x0801FC00, &ask_code_in_flash, 1);
